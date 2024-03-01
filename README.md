@@ -8,7 +8,7 @@ Before running this project, make sure you have the following:
 
 ## Installation
 1. Clone the repository:
-```git clone https://github.com/your-username/imgui-directx-overlay.git```
+```git clone https://github.com/WzrterFX/imgui-directx-overlay.git```
 2. Open the project in your preferred C++ development environment.
 3. Build the project.
 
@@ -16,7 +16,7 @@ Before running this project, make sure you have the following:
 - [WzrterFX](https://github.com/WzrterFX)
 
 ## Acknowledgments
-- ImGui ```https://github.com/ocornut/imgui```
+- [ImGui](https://github.com/ocornut/imgui)
 
 ## Contact
 For any inquiries or questions, you can create issue.
