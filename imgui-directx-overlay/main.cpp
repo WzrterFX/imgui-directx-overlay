@@ -4,9 +4,9 @@
 
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-static LPDIRECT3D9 gpD3D = nullptr;
-static LPDIRECT3DDEVICE9 gpd3dDevice = nullptr;
-static D3DPRESENT_PARAMETERS gd3dpp;
+LPDIRECT3D9 gpD3D = nullptr;
+LPDIRECT3DDEVICE9 gpd3dDevice = nullptr;
+D3DPRESENT_PARAMETERS gd3dpp;
 
 HRESULT CreateDevice(HWND hWnd, D3DPRESENT_PARAMETERS* pParams)
 {
@@ -47,21 +47,11 @@ void ResetDevice()
 
 LRESULT WINAPI D3DX9(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam))
+        return 0;
+
     switch (msg)
     {
-        case WM_SIZE:
-        {
-            if (gpd3dDevice != nullptr && wParam != SIZE_MINIMIZED)
-            {
-                gd3dpp.BackBufferWidth = LOWORD(lParam);
-                gd3dpp.BackBufferHeight = HIWORD(lParam);
-
-                ResetDevice();
-            }
-
-            return 0;
-        }
-
         case WM_SYSCOMMAND:
         {
             if ((wParam & 0xfff0) == SC_KEYMENU)
@@ -73,15 +63,7 @@ LRESULT WINAPI D3DX9(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case WM_DESTROY:
         {
             PostQuitMessage(0);
-
             return 0;
-        }
-
-        default:
-        {
-            ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam);
-
-            break;
         }
     }
 
@@ -94,16 +76,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     GetWindowRect(GetDesktopWindow(), &desktop);
 
     const char* windowTitle = "Window";
-    DWORD windowStyle = WS_EX_LAYERED | WS_EX_TOPMOST;
-    DWORD windowFlags = WS_POPUP;
 
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, D3DX9, 0, 0, GetModuleHandle(nullptr), nullptr, nullptr, nullptr, nullptr, windowTitle, nullptr };
     RegisterClassEx(&wc);
 
-    HWND hwnd = CreateWindowEx(windowStyle, windowTitle, windowTitle, windowFlags, 0, 0, desktop.right, desktop.bottom, nullptr, nullptr, wc.hInstance, nullptr);
-    if (!hwnd)
-        return 0;
-
+    HWND hwnd = CreateWindowEx(WS_EX_LAYERED | WS_EX_TOPMOST, windowTitle, windowTitle, WS_POPUP, 0, 0, desktop.right, desktop.bottom, nullptr, nullptr, wc.hInstance, nullptr);
     HDC hdc = GetDC(hwnd);
     HDC hdcMem = CreateCompatibleDC(hdc);
 
@@ -114,17 +91,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     UpdateLayeredWindow(hwnd, hdc, nullptr, nullptr, hdcMem, nullptr, 0, &blend, ULW_ALPHA);
     SetLayeredWindowAttributes(hwnd, 0, 0, LWA_COLORKEY);
 
-    D3DPRESENT_PARAMETERS params;
-    ZeroMemory(&params, sizeof(params));
+    D3DPRESENT_PARAMETERS d3dparam;
+    ZeroMemory(&d3dparam, sizeof(d3dparam));
 
-    params.Windowed = TRUE;
-    params.EnableAutoDepthStencil = TRUE;
-    params.SwapEffect = D3DSWAPEFFECT_FLIP;
-    params.BackBufferFormat = D3DFMT_A8R8G8B8;
-    params.AutoDepthStencilFormat = D3DFMT_D24S8;
-    params.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
+    d3dparam.Windowed = TRUE;
+    d3dparam.EnableAutoDepthStencil = TRUE;
+    d3dparam.SwapEffect = D3DSWAPEFFECT_FLIP;
+    d3dparam.BackBufferFormat = D3DFMT_A8R8G8B8;
+    d3dparam.AutoDepthStencilFormat = D3DFMT_D24S8;
+    d3dparam.PresentationInterval = D3DPRESENT_INTERVAL_DEFAULT;
 
-    if (CreateDevice(hwnd, &params) < 0)
+    if (CreateDevice(hwnd, &d3dparam) < 0)
     {
         CleanupDevice();
         UnregisterClass(wc.lpszClassName, wc.hInstance);
@@ -136,7 +113,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     UpdateWindow(hwnd);
 
     ImGui::CreateContext();
-
     DrawStyle();
 
     ImGui_ImplWin32_Init(hwnd);
@@ -169,6 +145,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         if (gpd3dDevice->BeginScene() >= 0)
         {
             gpd3dDevice->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0, 1, 0);
+
             ImGui::Render();
 
             ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
@@ -179,9 +156,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         if (result == D3DERR_DEVICELOST && gpd3dDevice->TestCooperativeLevel() == D3DERR_DEVICENOTRESET)
             ResetDevice();
     }
-
-    ReleaseDC(hwnd, hdc);
-    DeleteDC(hdcMem);
 
     ImGui_ImplDX9_Shutdown();
     ImGui_ImplWin32_Shutdown();

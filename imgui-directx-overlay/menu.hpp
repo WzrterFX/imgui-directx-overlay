@@ -20,7 +20,15 @@ inline void DrawMenu()
 {
     ImGuiIO& io = ImGui::GetIO();
 
-    ImGui::ShowDemoWindow();
+    ImGui::SetNextWindowSize({ 784, 375 }, ImGuiCond_Once);
+    ImGui::SetNextWindowPos({ 64, 32 }, ImGuiCond_Once);
+
+    ImGui::Begin("Window one", NULL, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings);
+    {
+        ImGui::Text("screen %g x %g", io.DisplaySize.x, io.DisplaySize.y);
+        ImGui::Text("mouse %g x %g", io.MousePos.x, io.MousePos.y);
+    }
+    ImGui::End();
 }
 
 inline void WindowClamp()
