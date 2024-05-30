@@ -2,111 +2,105 @@
 
 #include "menu.hpp"
 
-extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT message, WPARAM wParameter, LPARAM lParameter);
 
-LPDIRECT3D9 gpD3D = nullptr;
-LPDIRECT3DDEVICE9 gpd3dDevice = nullptr;
-D3DPRESENT_PARAMETERS gd3dpp;
-
-HRESULT CreateDevice(HWND hWnd, D3DPRESENT_PARAMETERS* pParams)
+class Overlay
 {
-    gpD3D = Direct3DCreate9(D3D_SDK_VERSION);
-    if (!gpD3D)
-        return E_FAIL;
+public:
+    Overlay(HINSTANCE hInstance, UINT interval);
+    ~Overlay();
 
-    if (gpD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, pParams, &gpd3dDevice) < 0)
-        return E_FAIL;
+    bool Push();
+    void Show();
 
-    return S_OK;
-}
+private:
+    void Reboot();
+    void Render();
 
-void CleanupDevice()
+    static LRESULT CALLBACK Procedure(HWND hwnd, UINT message, WPARAM wParameter, LPARAM lParameter);
+
+    HINSTANCE hInstance;
+    HWND hwnd;
+
+    LPDIRECT3D9 pD3D;
+    LPDIRECT3DDEVICE9 pD3DDevice;
+    D3DPRESENT_PARAMETERS d3dpp;
+
+    WNDCLASSEX windowClass;
+    UINT interval;
+};
+
+Overlay::Overlay(HINSTANCE hInstance, UINT interval) : hInstance(hInstance), hwnd(nullptr), pD3D(nullptr), pD3DDevice(nullptr), interval(interval)
 {
-    if (gpd3dDevice)
+    ZeroMemory(&d3dpp, sizeof(d3dpp));
+
+    windowClass =
     {
-        gpd3dDevice->Release();
-        gpd3dDevice = nullptr;
-    }
+        .cbSize = sizeof(WNDCLASSEX),
 
-    if (gpD3D)
-    {
-        gpD3D->Release();
-        gpD3D = nullptr;
-    }
+        .style = CS_CLASSDC,
+
+        .lpfnWndProc = Procedure,
+        .hInstance = hInstance,
+
+        .lpszClassName = "Window"
+    };
 }
 
-void ResetDevice()
+Overlay::~Overlay()
 {
-    ImGui_ImplDX9_InvalidateDeviceObjects();
+    if (pD3DDevice)
+        pD3DDevice->Release();
 
-    if (gpd3dDevice->Reset(&gd3dpp) == D3DERR_INVALIDCALL)
-        IM_ASSERT(0);
+    if (pD3D)
+        pD3D->Release();
 
-    ImGui_ImplDX9_CreateDeviceObjects();
+    ImGui_ImplDX9_Shutdown();
+    ImGui_ImplWin32_Shutdown();
+    ImGui::DestroyContext();
+
+    if (hwnd) DestroyWindow(hwnd);
+
+    UnregisterClass(windowClass.lpszClassName, windowClass.hInstance);
 }
 
-LRESULT WINAPI D3DX9(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+bool Overlay::Push()
 {
-    if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam))
-        return 0;
+    if (!RegisterClassEx(&windowClass)) return FALSE;
 
-    switch (msg)
-    {
-        case WM_SYSCOMMAND:
-        {
-            if ((wParam & 0xfff0) == SC_KEYMENU)
-                return 0;
-
-            break;
-        }
-
-        case WM_DESTROY:
-        {
-            PostQuitMessage(0);
-            return 0;
-        }
-    }
-
-    return DefWindowProc(hwnd, msg, wParam, lParam);
-}
-
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
-{
     RECT desktop;
     GetWindowRect(GetDesktopWindow(), &desktop);
 
-    const char* windowTitle = "Window";
+    hwnd = CreateWindowEx(WS_EX_LAYERED | WS_EX_TOPMOST, windowClass.lpszClassName, "Overlay", WS_POPUP, 0, 0, desktop.right, desktop.bottom, nullptr, nullptr, windowClass.hInstance, nullptr);
+    if (!hwnd) return FALSE;
 
-    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, D3DX9, 0, 0, GetModuleHandle(nullptr), nullptr, nullptr, nullptr, nullptr, windowTitle, nullptr };
-    RegisterClassEx(&wc);
+    BLENDFUNCTION blending
+    {
+        .BlendOp = AC_SRC_OVER,
+        .AlphaFormat = AC_SRC_ALPHA
+    };
 
-    HWND hwnd = CreateWindowEx(WS_EX_LAYERED | WS_EX_TOPMOST, windowTitle, windowTitle, WS_POPUP, 0, 0, desktop.right, desktop.bottom, nullptr, nullptr, wc.hInstance, nullptr);
-    HDC hdc = GetDC(hwnd);
-    HDC hdcMem = CreateCompatibleDC(hdc);
-
-    BLENDFUNCTION blend;
-    blend.AlphaFormat = AC_SRC_ALPHA;
-    blend.BlendOp = AC_SRC_OVER;
-
-    UpdateLayeredWindow(hwnd, hdc, nullptr, nullptr, hdcMem, nullptr, 0, &blend, ULW_ALPHA);
+    UpdateLayeredWindow(hwnd, GetDC(hwnd), nullptr, nullptr, CreateCompatibleDC(GetDC(hwnd)), nullptr, 0, &blending, ULW_ALPHA);
     SetLayeredWindowAttributes(hwnd, 0, 0, LWA_COLORKEY);
 
-    D3DPRESENT_PARAMETERS d3dparam;
-    ZeroMemory(&d3dparam, sizeof(d3dparam));
+    d3dpp.Windowed = TRUE;
+    d3dpp.EnableAutoDepthStencil = TRUE;
 
-    d3dparam.Windowed = TRUE;
-    d3dparam.EnableAutoDepthStencil = TRUE;
-    d3dparam.SwapEffect = D3DSWAPEFFECT_FLIP;
-    d3dparam.BackBufferFormat = D3DFMT_A8R8G8B8;
-    d3dparam.AutoDepthStencilFormat = D3DFMT_D24S8;
-    d3dparam.PresentationInterval = D3DPRESENT_INTERVAL_DEFAULT;
+    d3dpp.SwapEffect = D3DSWAPEFFECT_DISCARD;
+    d3dpp.BackBufferFormat = D3DFMT_A8R8G8B8;
+    d3dpp.AutoDepthStencilFormat = D3DFMT_D24S8;
 
-    if (CreateDevice(hwnd, &d3dparam) < 0)
+    d3dpp.PresentationInterval = interval;
+
+    if (Direct3DCreate9(D3D_SDK_VERSION)->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hwnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &d3dpp, &pD3DDevice) < 0)
     {
-        CleanupDevice();
-        UnregisterClass(wc.lpszClassName, wc.hInstance);
+        if (pD3DDevice)
+            pD3DDevice->Release();
 
-        return 0;
+        if (pD3D)
+            pD3D->Release();
+
+        return FALSE;
     }
 
     ShowWindow(hwnd, SW_SHOWDEFAULT);
@@ -116,8 +110,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     DrawStyle();
 
     ImGui_ImplWin32_Init(hwnd);
-    ImGui_ImplDX9_Init(gpd3dDevice);
+    ImGui_ImplDX9_Init(pD3DDevice);
 
+    return TRUE;
+}
+
+void Overlay::Show()
+{
     MSG message;
     ZeroMemory(&message, sizeof(message));
 
@@ -131,40 +130,74 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             continue;
         }
 
-        ImGui_ImplDX9_NewFrame();
-        ImGui_ImplWin32_NewFrame();
+        Render();
+    }
+}
 
-        ImGui::NewFrame();
-        {
-            DrawMenu();
-        }
-        ImGui::EndFrame();
+void Overlay::Reboot()
+{
+    ImGui_ImplDX9_InvalidateDeviceObjects();
+    if (pD3DDevice->Reset(&d3dpp) == D3DERR_INVALIDCALL)
+        IM_ASSERT(0);
 
-        WindowClamp();
+    ImGui_ImplDX9_CreateDeviceObjects();
+}
 
-        if (gpd3dDevice->BeginScene() >= 0)
-        {
-            gpd3dDevice->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0, 1, 0);
+void Overlay::Render()
+{
+    ImGui_ImplDX9_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
 
-            ImGui::Render();
+    DrawMenu();
 
-            ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
-            gpd3dDevice->EndScene();
-        }
+    ImGui::EndFrame();
+    WindowClamp();
 
-        HRESULT result = gpd3dDevice->Present(nullptr, nullptr, nullptr, nullptr);
-        if (result == D3DERR_DEVICELOST && gpd3dDevice->TestCooperativeLevel() == D3DERR_DEVICENOTRESET)
-            ResetDevice();
+    if (pD3DDevice->BeginScene() >= 0)
+    {
+        pD3DDevice->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0, 1, 0);
+        ImGui::Render();
+
+        ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+        pD3DDevice->EndScene();
     }
 
-    ImGui_ImplDX9_Shutdown();
-    ImGui_ImplWin32_Shutdown();
-    ImGui::DestroyContext();
+    if (pD3DDevice->Present(nullptr, nullptr, nullptr, nullptr) == D3DERR_DEVICELOST && pD3DDevice->TestCooperativeLevel() == D3DERR_DEVICENOTRESET)
+        Reboot();
+}
 
-    CleanupDevice();
+LRESULT CALLBACK Overlay::Procedure(HWND hwnd, UINT message, WPARAM wParameter, LPARAM lParameter)
+{
+    if (ImGui_ImplWin32_WndProcHandler(hwnd, message, wParameter, lParameter))
+        return TRUE;
 
-    DestroyWindow(hwnd);
-    UnregisterClass(wc.lpszClassName, wc.hInstance);
+    switch (message)
+    {
+        case WM_SYSCOMMAND:
+        {
+            if ((wParameter & 0xfff0) == SC_KEYMENU)
+                return EXIT_SUCCESS;
 
-    return 0;
+            break;
+        }
+
+        case WM_DESTROY:
+        {
+            PostQuitMessage(0);
+            return EXIT_SUCCESS;
+        }
+    }
+
+    return DefWindowProc(hwnd, message, wParameter, lParameter);
+}
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
+{
+    Overlay overlay(hInstance, D3DPRESENT_INTERVAL_DEFAULT);
+    if (!overlay.Push())
+        return EXIT_FAILURE;
+
+    overlay.Show();
+    return EXIT_SUCCESS;
 }
